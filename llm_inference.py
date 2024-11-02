@@ -1,4 +1,4 @@
-from constants import MAX_TOKENS, TEMPERATURE,STOP_TOKENS, OPENAI, LOCAL, TOK_COUNT
+from constants import MAX_TOKENS, TEMPERATURE,STOP_TOKENS, OPENAI, LOCAL, TOK_COUNT, GEMINI
 from collections import Counter
 import logging
 import requests
@@ -50,11 +50,12 @@ def get_local_llm_name(port):
     return output
     
 
-def get_llm_api_output(url, headers, model, system_prompt, prompt, temperature, max_tokens):
+def get_llm_api_output(mode, url, headers, model, system_prompt, prompt, args):
     """
     Sends a POST request to an LLM API and processes the response.
 
     Input:
+        mode (str): The mode of the LLM API (OPENAI or GEMINI).
         url (str): The URL of the LLM API endpoint.
         headers (dict): HTTP headers to include in the request.
         model (str): The model name to be used for the request.
@@ -71,37 +72,74 @@ def get_llm_api_output(url, headers, model, system_prompt, prompt, temperature, 
     Raises:
         Exception: If there is an error accessing the URL or processing the response.
     """
+
+    if mode in (OPENAI, LOCAL):
+
+        # Initialize usage counter with a copy of TOK_COUNT
+        usage = TOK_COUNT.copy()
     
-    # Initialize usage counter with a copy of TOK_COUNT
-    usage = TOK_COUNT.copy()
-    
-    # Send POST request to the LLM API endpoint
-    r = requests.post(
-        url, 
-        headers=headers,
-        json={
-            "model": model,
-            "messages": [ 
-                { "role": "system", "content": system_prompt },
-                { "role": "user", "content": prompt },
-            ], 
-            "temperature": temperature, 
-            "max_tokens": max_tokens,
-            "stream": False,
-            "stop": STOP_TOKENS,
+        # Send POST request to the LLM API endpoint
+        r = requests.post(
+            url,
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [
+                    { "role": "system", "content": system_prompt },
+                    { "role": "user", "content": prompt },
+                ],
+                "temperature": args.temperature,
+                "max_tokens": args.max_tokens,
+                "stream": False,
+                "stop": STOP_TOKENS,
+            }
+        )
+
+        output = '-'
+        try:
+            # Extract the output content and usage statistics from the response
+            output = r.json()['choices'][0]['message']['content'].lstrip('\n').strip('\n').strip()
+            usage = Counter(r.json()['usage'])
+        except Exception as e:
+            # Raise an exception if there is an error processing the response
+            raise Exception(f'Error while accessing {url}: {e}')
+
+        return clean_output(output), usage
+
+    elif mode == GEMINI:
+
+        usage = TOK_COUNT.copy()
+        gemini_api_key = args.gemini_api_key if args.gemini_api_key else os.environ[args.gemini_api_key_env]
+
+
+        headers = {
+            "Content-Type": "application/json"
         }
-    )
-    
-    output = '-'
-    try:
-        # Extract the output content and usage statistics from the response
-        output = r.json()['choices'][0]['message']['content'].lstrip('\n').strip('\n').strip()
-        usage = Counter(r.json()['usage'])
-    except Exception as e:
-        # Raise an exception if there is an error processing the response
-        raise Exception(f'Error while accessing {url}: {e}')
-        
-    return clean_output(output), usage
+        payload = {
+             "contents": [
+
+             {"parts":[{"text":system_prompt},{"text":prompt}]}
+                         ]
+        }
+        output = '-'
+        # Send the request with the API key as a URL parameter
+        response = requests.post(url, headers=headers, json=payload, params={'key': gemini_api_key})
+        response_json = response.json()
+
+
+        try:
+            # Extract the output content and usage statistics from the response
+            output = response_json['candidates'][0]['content']['parts'][0]['text']
+            usage = Counter(response_json['usageMetadata'])
+        except Exception as e:
+            # Raise an exception if there is an error processing the response
+            raise Exception(f'Error while accessing {url}: {e}')
+
+        return clean_output(output), usage
+
+
+
+
 
 
 def get_llm_output(system_prompt, prompt, mode, args):
@@ -135,9 +173,15 @@ def get_llm_output(system_prompt, prompt, mode, args):
         url = f'http://localhost:{args.port}/v1/chat/completions'
         headers = {}
         model = 'dummy'
+
+    elif mode == GEMINI:
+        model = args.gemini_model or 'gemini-1.5-flash'
+        url = f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+        headers = {}
+
     else:
         # Raise an exception if the mode is not recognized
         raise Exception(f'Unknown mode: `{mode}` for LLM inference')
     
     # Call a helper function to get the actual output from the LLM API
-    return get_llm_api_output(url, headers, model, system_prompt, prompt, args.temperature, args.max_tokens)
+    return get_llm_api_output(mode, url, headers, model, system_prompt, prompt, args)

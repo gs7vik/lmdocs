@@ -1,5 +1,5 @@
 from get_code_docs import CodeData, get_reference_docs_simple_functions, get_reference_docs_custom_functions, get_shortened_docs
-from constants import LOCAL, OPENAI
+from constants import LOCAL, OPENAI, GEMINI
 from llm_inference import get_local_llm_name
 from utils import get_args, generate_report, get_code_dependancies_and_imports, generate_documentation_for_custom_calls, replace_modified_functions
 
@@ -33,8 +33,20 @@ def main():
     logging.info(f'Project path: {args.path}')  # Log the project path
 
     # Determine the language model mode (local or OpenAI)
-    llm_mode = LOCAL if args.port else OPENAI
-    model_name = get_local_llm_name(args.port) if llm_mode == LOCAL else args.openai_model
+    if args.port:
+        llm_mode = LOCAL
+    elif args.gemini_api_key:
+        llm_mode = GEMINI
+    else:
+        llm_mode = OPENAI
+
+    if llm_mode == LOCAL:
+        model_name = get_local_llm_name(args.port)
+    elif llm_mode == GEMINI:
+        model_name = args.gemini_model
+    else:  # OPENAI
+        model_name = args.openai_model
+
     logging.info(f'Using {llm_mode} LLM: {model_name}')  # Log the LLM being used
 
     # Get code dependencies and import statements from the specified path

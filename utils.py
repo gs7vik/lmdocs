@@ -27,29 +27,42 @@ def get_args():
     Raises:
         SystemExit: If the command line arguments are invalid.
     """
+    # Create an argument parser object
+    # argparse.ArgumentParser: Creates a parser object to handle command-line arguments
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
         
+    # Add the path argument
     parser.add_argument(
         "path",
         help="Path to the file/folder of project",
     )
     
+    # Add the verbose argument
     parser.add_argument(
         "-v", "--verbose",
         action='store_true',
         help="Give out verbose logs",
     )
 
+    # Add the OpenAI key argument
     parser.add_argument(
         "--openai_key",
         help="Your Open AI key",
     )
 
+    # Add the Gemini API key argument
+    parser.add_argument(
+        "--gemini_api_key",
+        help="Your Gemini API key",
+    )
+
+    # Add the OpenAI key environment variable argument
     parser.add_argument(
         "--openai_key_env",
         help="Environment variable where Open AI key is stored",
     )
 
+    # Add the OpenAI model argument
     parser.add_argument(
         "--openai_model",
         choices=['gpt-3.5-turbo', 'gpt-4-turbo', 'gpt-4o'],
@@ -58,12 +71,23 @@ def get_args():
             \ngpt-3.5-turbo is used by default"
     )
 
+    # Add the Gemini model argument
+    parser.add_argument(
+        "--gemini_model",
+        choices=['gemini-1.5-flash','gemini-1.5-flash-8b','gemini-1.5-pro','gemini-1.0-pro'],
+        default='gemini-1.5-flash',
+        help="Which gemini model to use. Supported models are ['gemini-1.5-flash','gemini-1.5-flash-8b','gemini-1.5-pro','gemini-1.0-pro']\
+                \ngemini-1.5-flash is used by default"
+    )
+
+    # Add the port argument
     parser.add_argument(
         "-p", "--port",
         type=int,
         help="Port where Local LLM server is hosted"
     )
         
+    # Add the reference documentation strategy argument
     parser.add_argument(
         "--ref_doc",
         choices=['truncate', 'summarize', 'full'],
@@ -75,6 +99,7 @@ def get_args():
             \n\"truncate\" is used as the default strategy"
     )
     
+    # Add the maximum retries argument
     parser.add_argument(
         "--max_retries",
         type=int,
@@ -82,6 +107,7 @@ def get_args():
         help="Number of attempts that the LLM gets to generate the documentation for each function/method/class"
     )
     
+    # Add the temperature argument
     parser.add_argument(
         "--temperature",
         type=int,
@@ -89,6 +115,7 @@ def get_args():
         help="Temperature parameter used to sample output from the LLM"
     )
     
+    # Add the maximum tokens argument
     parser.add_argument(
         "--max_tokens",
         type=int,
@@ -96,7 +123,9 @@ def get_args():
         help="Maximum number of tokens that the LLM is allowed to generate"
     )
 
+    # Parse the arguments
     args = parser.parse_args()
+    # Verify the arguments parsed
     verify_args(args)
     
     return args
@@ -112,6 +141,8 @@ def verify_args(args):
         - openai_key: API key for OpenAI LLM (optional if using local LLM).
         - openai_key_env: Environment variable name for OpenAI API key (optional if using local LLM).
         - openai_model: Specific model to be used from OpenAI (optional).
+        - gemini_api_key: API key for Gemini (optional).
+        - gemini_model: Specific model to be used from Gemini (optional).
 
     Returns:
     - None
@@ -119,38 +150,49 @@ def verify_args(args):
     Raises:
     - argparse.ArgumentError: Raised if neither 'port' nor 'openai_key'/'openai_key_env' is provided.
                              Raised if 'openai_model' is specified without 'openai_key' or 'openai_key_env'.
+                             Raised if 'gemini_model' is specified without 'gemini_api_key'.
     """
+    # Create an argument parser object
+    # argparse.ArgumentParser: Object for parsing command line strings into Python objects.
     parser = argparse.ArgumentParser()
 
-    # Check if neither local port nor OpenAI keys are provided
-    if not args.port and not args.openai_key and not args.openai_key_env:
-        raise parser.error('Use --port for a local LLM or --openai_key/--openai_key_env for openAI LLMs')
+    if not (args.port or args.gemini_api_key or args.openai_key or args.openai_key_env):
+        raise parser.error(
+            'Must specify either --port for local LLM, or --gemini_api_key for Gemini, or --openai_key/--openai_key_env for OpenAI')
 
     # Check if an OpenAI model is specified without providing necessary keys
-    if not args.port and (args.openai_model and not (args.openai_key or args.openai_key_env)):
+    if not args.port and not args.gemini_api_key and (args.openai_model and not (args.openai_key or args.openai_key_env)):
         raise parser.error('One of --openai_key or --openai_key_env must be specified')
 
+    # Check if gemini model is specified without providing necessary keys
+    if not args.port and not args.openai_key and (args.gemini_model and not args.gemini_api_key):
+        raise parser.error('For Gemini model gemini API key must be specified')
 
-def generate_report(code_deps, report_path):
-    """
-    Generates a report from given code dependencies and saves it as a CSV file.
+import os
+import pandas as pd
 
-    Input:
-        code_deps (dict): Dictionary containing code dependencies where keys are function names and values are dictionaries
-                          with custom data including path, documentation, shortened documentation, code before, and code after.
-        report_path (str): File path where the generated CSV report will be saved.
+
+def generate_report(code_deps, input_path):
+    """Generates a CSV report of code changes and documentation.
+
+    Args:
+        code_deps (dict): A dictionary containing code dependencies and their attributes.
+        input_path (str): Path to the input file used for report naming.
 
     Returns:
-        None
+        None: The function saves a CSV file to the current directory.
 
     Raises:
-        KeyError: If any expected key is missing from the code_deps dictionary.
+        None: No exceptions are explicitly raised by this function.
     """
-    
-    data = []  # Initialize an empty list to store formatted data
+    data = []  # Initialize an empty list to store the formatted data
 
-    for k, v in code_deps.items():  # Iterate over each item in the code dependencies
-        if v[CodeData.CUSTOM]:  # Check if the code is marked as custom
+    # Iterate through the code dependencies dictionary and extract relevant information
+    # for custom code entries.
+    for k, v in code_deps.items():  
+        # Check if the code is custom
+        if v[CodeData.CUSTOM]:  
+            # Append the relevant data (path, function name, documentation, code changes) to the list
             data.append({
                 'path': v['path'],
                 'function': k,  # Function name
@@ -159,8 +201,15 @@ def generate_report(code_deps, report_path):
                 'code_before': v[CodeData.CODE],  # Original code
                 'code_after': v[CodeData.CODE_NEW]  # Modified code
             })
-        
-    # Convert the list of dictionaries into a DataFrame and save it as a CSV file
+
+    # Extract filename from the input path using os.path.basename
+    filename = os.path.basename(input_path)
+
+    # Create the report filename by adding a prefix
+    report_path = f'doc_report_{filename}'
+
+    # Convert the list of dictionaries to a pandas DataFrame.
+    # Save the DataFrame to a CSV file specified by report_path, excluding the index.
     pd.DataFrame(data).to_csv(report_path, index=False)
 
 
@@ -185,34 +234,35 @@ def get_code_dependancies_and_imports(path):
     code_dependancies = CodeData()  # Object to hold code dependencies
     
     if os.path.isdir(path):
-        # If the path is a directory, walk through it
-        for root, _, files in os.walk(path):
-            for file in files:
-                fpath = os.path.join(root, file)  # Full path to the file
+        # If the path is a directory, walk through all subdirectories and files
+        for root, _, files in os.walk(path):  # Iterate through the directory tree
+            for file in files:  # Iterate through files in the current directory
+                fpath = os.path.join(root, file)  # Construct the full file path
                 if not is_hidden_dir(fpath.replace(path,"")) and os.path.splitext(file)[-1] == '.py':
-                    # Check if the file is a visible Python file
+                    # Process only visible Python files
                     logging.info(f'Extracting dependancies from {fpath}')  # Log the file being processed
                     
-                    with open(fpath) as f:    
+                    with open(fpath) as f: # Open the file   
                         code_str = f.read()  # Read the code from the file
                         
-                    import_stmts.extend(get_all_imports(code_str)[2])  # Collect import statements
-                    get_all_calls(fpath, code_str, code_dependancies)  # Collect function calls and dependencies
+                    import_stmts.extend(get_all_imports(code_str)[2])  # Extract and add import statements
+                    get_all_calls(fpath, code_str, code_dependancies)  # Extract and add function calls and dependencies
                     
     elif os.path.splitext(path)[-1] == '.py':
         # If the path is a single Python file
         logging.info(f'Extracting dependancies from {path}')  # Log the file being processed
         
-        with open(path) as f:    
+        with open(path) as f: # Open the file    
             code_str = f.read()  # Read the code from the file
         
-        import_stmts.extend(get_all_imports(code_str)[2])  # Collect import statements
-        get_all_calls(path, code_str, code_dependancies)  # Collect function calls and dependencies
+        import_stmts.extend(get_all_imports(code_str)[2])  # Extract and add import statements
+        get_all_calls(path, code_str, code_dependancies)  # Extract and add function calls and dependencies
         
     else:
-        raise Exception(f'Could not parse path: `{path}`')  # Raise an exception if the path is invalid
+        # Raise an exception if the provided path is invalid
+        raise Exception(f'Could not parse path: `{path}`') # Raise exception for invalid path
     
-    import_stmts = list(set(import_stmts))  # Remove duplicates from import statements
+    import_stmts = list(set(import_stmts))  # Remove duplicate import statements
     
     return code_dependancies, import_stmts
 
@@ -235,22 +285,26 @@ def generate_documentation_for_custom_calls(code_dependancies, llm_mode, args):
     # Fetch the list of custom functions from the code dependencies
     custom_funcs = [func_name for func_name, func_info in code_dependancies.items() if func_info[CodeData.CUSTOM]]
 
-    num_custom_funcs = len(custom_funcs)  # Count of custom functions
-    num_digits = math.ceil(math.log(num_custom_funcs, 10))  # Calculate number of digits needed for formatting
+    # Count of custom functions and calculate number of digits for formatting progress display
+    num_custom_funcs = len(custom_funcs)  
+    num_digits = math.ceil(math.log(num_custom_funcs, 10))  
     logging.info(f'Generating docs for {len(custom_funcs)} custom functions/methods/classes')
 
-    total_tokens = TOK_COUNT.copy()  # Initialize total token count
+    # Initialize total token count
+    total_tokens = TOK_COUNT.copy()  
 
+    # Iterate through each custom function
     for i in range(num_custom_funcs):
         # Find the function with the least dependencies
         least_dep_func = min(custom_funcs, key=lambda x: code_dependancies.undocumented_dependancies(x))
         reason = None
         
+        # Retry loop for generating documentation
         for ri in range(args.max_retries):
             logging.debug(f'\tTry {ri+1}/{args.max_retries} for `{least_dep_func}`')
             # Generate documentation using a language model
             llm_out, used_toks = get_llm_output(
-                SYSTEM_PROMPT, 
+                SYSTEM_PROMPT,
                 DOC_GENERATION_PROMPT(
                     code_dependancies[least_dep_func][CodeData.CODE], 
                     get_reference_docs_custom_functions(least_dep_func, code_dependancies)
@@ -258,17 +312,19 @@ def generate_documentation_for_custom_calls(code_dependancies, llm_mode, args):
                 llm_mode,
                 args,
             )
-            total_tokens += used_toks  # Update total tokens used
+            # Update total tokens used
+            total_tokens += used_toks  
             
             # Parse the commented function output from the language model
             new_func_code, new_func_node, success, reason = parse_commented_function(least_dep_func, llm_out)
             
             if not success:
                 continue
-        
-            # Compare the abstract syntax tree (AST) of the original and the new function
+
+            # Compare the AST of the original and the new function and check if they match
             same, ast_reason = same_ast_with_reason(remove_docstring(code_dependancies[least_dep_func][CodeData.NODE]), remove_docstring(new_func_node))
             if same:
+                # Add the generated code and documentation to code_dependencies
                 code_dependancies.add(
                     least_dep_func,
                     {
@@ -280,6 +336,7 @@ def generate_documentation_for_custom_calls(code_dependancies, llm_mode, args):
                 break
             else:
                 reason = f'AST mismatch: {ast_reason}'
+        # Log failure if documentation generation fails after multiple retries
         else:
             logging.info(f'\t[{str(i+1).zfill(num_digits)}/{str(num_custom_funcs).zfill(num_digits)}] Could not generate docs for `{least_dep_func}` after {args.max_retries} tries')
             logging.info(f'\t\tReason: {reason}')
@@ -291,9 +348,10 @@ def generate_documentation_for_custom_calls(code_dependancies, llm_mode, args):
                 {CodeData.DOC_SHORT: get_shortened_docs(least_dep_func, CodeData.DOC, args.ref_doc, llm_mode, args)}
             )            
 
-        custom_funcs.remove(least_dep_func)  # Remove the processed function from the list
+        # Remove the processed function from the list
+        custom_funcs.remove(least_dep_func)  
         
-    # Generate a list of custom functions that have documentation
+    # Generate a list of custom functions that have documentation and Log the results
     custom_funcs_with_docs = [func_name for func_name, func_info in code_dependancies.items() if func_info[CodeData.CUSTOM] and func_info[CodeData.DOC] != '-']
     logging.info(f'Generated docs for {len(custom_funcs_with_docs)}/{num_custom_funcs} custom functions/classes.methods')
     logging.info(f'Tokens used: ' + ', '.join(f'{k}: {v}' for k,v in total_tokens.items()))
@@ -318,10 +376,13 @@ def replace_modified_functions(code_dependancies, path):
     """
     
     # List comprehension to gather functions with custom implementations and documentation
+    # Filters functions that have custom implementations and documentation and stores their names in 'custom_funcs_with_docs' list
     custom_funcs_with_docs = [func_name for func_name, func_info in code_dependancies.items() if func_info[CodeData.CUSTOM] and func_info[CodeData.DOC] != '-']
-    # Sort functions with classes first
+    # Sort functions with classes appearing first, then functions
+    # This ensures that class methods are processed before standalone functions
     custom_funcs_with_docs = sorted(custom_funcs_with_docs, key = lambda func: 1 if code_dependancies[func][CodeData.TYPE] == 'class' else 0)    
     
+    # Iterate through the functions that need replacement
     for func in custom_funcs_with_docs: 
         fpath = code_dependancies[func][CodeData.PATH]
         
@@ -329,7 +390,7 @@ def replace_modified_functions(code_dependancies, path):
         with open(fpath) as f:    
             file_str = f.read()
         
-        # Replace the old function code with the new one
+        # Replace the old function code with the new one using replace_func
         file_str = replace_func(
                         func, 
                         code_dependancies[func][CodeData.CODE], 

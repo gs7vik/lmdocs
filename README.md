@@ -143,6 +143,13 @@ python lmdocs.py <project path> --openai_key <key>
 
 Tested with `gpt-3.5-turbo`, `gpt-4-turbo`, `gpt-4o`
 
+### Using Gemini model
+```bash
+python lmdocs.py <project path> --gemini_api_key <key> 
+```
+
+Tested with `gemini-1.5-flash`, `gemini-1.5-pro`
+
 ### Using a local model
 ```bash
 python lmdocs.py <project path> --port <local LLM server port>
@@ -173,7 +180,7 @@ If they don't match, retry the generation and verification process (up to three 
 
 ### Additional options :gear:
 ```bash
-usage: lmdocs.py [-h] [-v] [--openai_key OPENAI_KEY] [--openai_key_env OPENAI_KEY_ENV] [--openai_model {gpt-3.5-turbo,gpt-4-turbo,gpt-4o}] [-p PORT]
+usage: lmdocs.py [-h] [-v] [--openai_key OPENAI_KEY] [--openai_key_env OPENAI_KEY_ENV] [--gemini_api_key GEMINI_API_KEY] [--openai_model {gpt-3.5-turbo,gpt-4-turbo,gpt-4o}] [--gemini_model {gemini-1.5-flash, gemini-1.5-pro}][-p PORT]
                  [--ref_doc {truncate,summarize,full}] [--max_retries MAX_RETRIES] [--temperature TEMPERATURE] [--max_tokens MAX_TOKENS]
                  path
 
@@ -185,11 +192,17 @@ optional arguments:
   -v, --verbose         Give out verbose logs
   --openai_key OPENAI_KEY
                         Your Open AI key
+  --gemini_api_key GEMINI_API_KEY
+                        Your GEMINI API key
   --openai_key_env OPENAI_KEY_ENV
                         Environment variable where Open AI key is stored
   --openai_model {gpt-3.5-turbo,gpt-4-turbo,gpt-4o}
                         Which openAI model to use. Supported models are ['gpt-3.5-turbo', 'gpt-4-turbo', 'gpt-4o']            
                         gpt-3.5-turbo is used by default
+  --gemini_model {gemini-1.5-flash, gemini-1.5-pro}
+                        Which gemini model to use. Supported models are ['gemini-1.5-flash', 'gemini-1.5-pro']
+                        gemini-1.5-flash is used by default
+
   -p PORT, --port PORT  Port where Local LLM server is hosted
   --ref_doc {truncate,summarize,full}
                         Strategy to process reference documentation. Supported choices are:            
@@ -217,6 +230,9 @@ Only functional and class dependancies are tracked i.e Only code written within 
 ### Package Dependancies  
 lmdocs is written in pure Python, it does not depend on any other packages.  
 It is strongly recommended that you install the libraries/packages for the project that needs to be documented for reference document extraction
+
+### Temperature and max tokens for gemini
+Gemini API doesnt intake temperature and max tokens as query parameters.
 
 ### Reference documentation extraction  
 Documentation for functions which have no dependancies is extracted using Pythons `___doc___()` method  
